@@ -2,7 +2,7 @@ from typing import List
 import numpy as np
 
 from pyquil import Program
-from pyquil.gates import MEASURE, I
+from pyquil.gates import *
 from pyquil.quil import address_qubits
 from pyquil.quilatom import QubitPlaceholder
 from pyquil.api import QVMConnection
@@ -12,9 +12,12 @@ from pyquil.api import QVMConnection
 import subprocess
 subprocess.Popen("/src/qvm/qvm -S > qvm.log 2>&1", shell=True)
 
+declared_already = False
+
 
 # Do not change this SEED value you or your autograder score will be incorrect.
 qvm = QVMConnection(random_seed=1337)
+
 
 
 def bit_flip_channel(prob: float):
@@ -44,14 +47,20 @@ def bit_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceho
     pq = Program()  # the Program that does the encoding
 
     #Setup and declaration of qubits and memory
-    ro = pq.declare('ro', 'BIT', 1)
+    global declared_already
+    if not declared_already : 
+        print(1)
+        rb = pq.declare('rb', 'BIT', 2)
+        declared_already = True
+    
+        
     x = qubit
-    x1 = x.copy()
-    x2 = x.copy()
+    x1 = QubitPlaceholder()
+    x2 = QubitPlaceholder()
    
     #Ancilla qubits
-    a1 = x.copy()
-    a2 = x.copy()
+    a1 = QubitPlaceholder()
+    a2 = QubitPlaceholder()
     #To ensure the ancillas are zero
     pq += Program(CNOT(a1, x)) 
     pq += Program(CNOT(a2, x))
@@ -78,14 +87,14 @@ def bit_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceho
     pq += Program(CNOT(x1, a1))
     pq += Program(CNOT(x1, a2))
     pq += Program(CNOT(x2, a2))
-    pq += MEASURE(a1, ro[0])
-    pq += MEASURE(a2, ro[1])
+    pq += MEASURE(a1, rb[0])
+    pq += MEASURE(a2, rb[1])
     
 
     #Conditional Cases:
-    if ro[0] == 0 and ro[1] == 1 : pq += Program(X(x2))
-    elif ro[0] == 1 and ro[1] == 0 : pq += Program(X(x))
-    elif ro[0] == 1 and ro[1] == 1 : pq += Program(X(x1))
+    if rb[0] == 0 and rb[1] == 1 : pq += Program(X(x2))
+    elif rb[0] == 1 and rb[1] == 0 : pq += Program(X(x))
+    elif rb[0] == 1 and rb[1] == 1 : pq += Program(X(x1))
 
     return pq, code_register
 
@@ -96,14 +105,15 @@ def phase_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlace
     pq = Program()  # the Program that does the encoding
 
     #Setup and declaration of qubits and memory
-    ro = pq.declare('ro', 'BIT', 1)
-    x = qubit
-    x1 = x.copy()
-    x2 = x.copy()
+    rp = pq.declare('rp', 'BIT', 2)
 
+    x = qubit
+    x1 = QubitPlaceholder()
+    x2 = QubitPlaceholder()
+   
     #Ancilla qubits
-    a1 = x.copy()
-    a2 = x.copy()
+    a1 = QubitPlaceholder()
+    a2 = QubitPlaceholder()
     #To ensure the ancillas are zero
     pq += Program(CNOT(a1, x)) 
     pq += Program(CNOT(a2, x))
@@ -135,13 +145,13 @@ def phase_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlace
     pq += Program(CNOT(x1, a1))
     pq += Program(CNOT(x1, a2))
     pq += Program(CNOT(x2, a2))
-    pq += MEASURE(a1, ro[0])
-    pq += MEASURE(a2, ro[1])
+    pq += MEASURE(a1, rp[0])
+    pq += MEASURE(a2, rp[1])
 
     #Conditional Cases:
-    if ro[0] == 0 and ro[1] == 1 : pq += Program(Z(x2))
-    elif ro[0] == 1 and ro[1] == 0 : pq += Program(Z(x))
-    elif ro[0] == 1 and ro[1] == 1 : pq += Program(Z(x1))
+    if rp[0] == 0 and rp[1] == 1 : pq += Program(Z(x2))
+    elif rp[0] == 1 and rp[1] == 0 : pq += Program(Z(x))
+    elif rp[0] == 1 and rp[1] == 1 : pq += Program(Z(x1))
 
     return pq, code_register
 
@@ -194,7 +204,9 @@ def simulate_code(kraus_operators, trials, error_code) -> int:
     :return: The number of times the code did not correct back to the logical zero state for "trials" attempts
     """
     # Apply the error_code to some qubits and return back a Program pq
-    pq = None
+    score = 0
+    pq, code_register = error_code(QubitPlaceholder())
+    ro = pq.declare('ro', 'BIT', len(code_register))
 
     # THIS CODE APPLIES THE NOISE FOR YOU
     kraus_ops = kraus_operators
@@ -205,6 +217,21 @@ def simulate_code(kraus_operators, trials, error_code) -> int:
 
     # Run the simulation trials times using the QVM and check how many times it did not work
     # return that as the score. E.g. if it always corrected back to the 0 state then it should return 0.
-    score = None
+    pq += [MEASURE(qq, rr) for qq, rr in zip(code_register, ro)]
+    results = qvm.run(address_qubits(pq), trials=trials)
+    for trial in results:
+        if any(trial) and not all(trial) : score += 1
+
     return score
+
+
+# score = simulate_code(bit_flip_channel(0.5), 1000, bit_code)
+# print(score)
+
+# # score = simulate_code(bit_flip_channel(0.5), 1000, phase_code)
+# # print(score) #Always zero which seems wrong
+
+score = simulate_code(bit_flip_channel(0.5), 100, shor)
+print(score)
+
 
