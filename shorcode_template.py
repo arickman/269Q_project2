@@ -12,12 +12,9 @@ from pyquil.api import QVMConnection
 import subprocess
 subprocess.Popen("/src/qvm/qvm -S > qvm.log 2>&1", shell=True)
 
-declared_already = False
-
 
 # Do not change this SEED value you or your autograder score will be incorrect.
 qvm = QVMConnection(random_seed=1337)
-
 
 
 def bit_flip_channel(prob: float):
@@ -44,16 +41,11 @@ def bit_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceho
 
     ### Do your encoding step here
     code_register = []  # the List[QubitPlaceholder] of the qubits you have encoded into
-    pq = Program()  # the Program that does the encoding
 
     #Setup and declaration of qubits and memory
-    global declared_already
-    if not declared_already : 
-        print(1)
-        rb = pq.declare('rb', 'BIT', 2)
-        declared_already = True
-    
-        
+    pq = Program()  # the Program that does the encoding
+    rb = pq.declare('rb', 'BIT', 2)
+
     x = qubit
     x1 = QubitPlaceholder()
     x2 = QubitPlaceholder()
@@ -95,6 +87,9 @@ def bit_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceho
     if rb[0] == 0 and rb[1] == 1 : pq += Program(X(x2))
     elif rb[0] == 1 and rb[1] == 0 : pq += Program(X(x))
     elif rb[0] == 1 and rb[1] == 1 : pq += Program(X(x1))
+
+    #Free the memory:
+    rb = 0
 
     return pq, code_register
 
