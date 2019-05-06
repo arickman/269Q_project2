@@ -24,27 +24,37 @@ def bit_flip_channel(prob: float):
 
 
 def phase_flip_channel(prob: float):
-    pass
+    noisy_I = np.sqrt(1-prob) * np.asarray([[1, 0], [0, 1]])
+    noisy_Z = np.sqrt(prob) * np.asarray([[1, 0], [0, -1]])
+    return [noisy_I, noisy_Z]
 
 
 def depolarizing_channel(prob: float):
-    pass
+    noisy_I = np.sqrt(1-prob) * np.asarray([[1, 0], [0, 1]])
+    noisy_X = np.sqrt(prob/3) * np.asarray([[0, 1], [1, 0]])
+    noisy_Y = np.sqrt(prob/3) * np.asarray([[0, -1], [1, 0]])
+    noisy_Z = np.sqrt(prob/3) * np.asarray([[1, 0], [0, -1]])
+    return [noisy_I, noisy_X, noisy_Y, noisy_Z]
 
 
 def bit_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceholder]):
 
     ### Do your encoding step here
-    code_register = None  # the List[QubitPlaceholder] of the qubits you have encoded into
-    pq = None  # the Program that does the encoding
+    code_register = []  # the List[QubitPlaceholder] of the qubits you have encoded into
+    pq = Program()  # the Program that does the encoding
 
     #Setup and declaration of qubits and memory
-    pq = Program()
     ro = pq.declare('ro', 'BIT', 1)
-    x = QubitPlaceholder()
-    x1 = QubitPlaceholder()
-    x2 = QubitPlaceholder()
-    a1 = QubitPlaceholder()
-    a2 = QubitPlaceholder()
+    x = qubit
+    x1 = x.copy()
+    x2 = x.copy()
+   
+    #Ancilla qubits
+    a1 = x.copy()
+    a2 = x.copy()
+    #To ensure the ancillas are zero
+    pq += Program(CNOT(a1, x)) 
+    pq += Program(CNOT(a2, x))
 
     #Encode with CNOT x x1; CNOT x x2
     pq += Program(CNOT(x, x1))
@@ -66,9 +76,9 @@ def bit_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceho
     #Decode with CNOT x a1;CNOT x1 a1; Measure a1[0]; CNOT x1 a2; CNOT x2 a2; Measure a2[1]
     pq += Program(CNOT(x, a1))
     pq += Program(CNOT(x1, a1))
-    pq += MEASURE(a1, ro[0])
     pq += Program(CNOT(x1, a2))
     pq += Program(CNOT(x2, a2))
+    pq += MEASURE(a1, ro[0])
     pq += MEASURE(a2, ro[1])
     
 
@@ -82,21 +92,29 @@ def bit_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceho
 
 def phase_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceholder]):
     ### Do your encoding step here
-    code_register = None  # the List[QubitPlaceholder] of the qubits you have encoded into
-    pq = None  # the Program that does the encoding
+    code_register = []  # the List[QubitPlaceholder] of the qubits you have encoded into
+    pq = Program()  # the Program that does the encoding
 
     #Setup and declaration of qubits and memory
-    pq = Program()
     ro = pq.declare('ro', 'BIT', 1)
-    x = QubitPlaceholder()
-    x1 = QubitPlaceholder()
-    x2 = QubitPlaceholder()
-    a1 = QubitPlaceholder()
-    a2 = QubitPlaceholder()
+    x = qubit
+    x1 = x.copy()
+    x2 = x.copy()
+
+    #Ancilla qubits
+    a1 = x.copy()
+    a2 = x.copy()
+    #To ensure the ancillas are zero
+    pq += Program(CNOT(a1, x)) 
+    pq += Program(CNOT(a2, x))
+
 
     #Encode with CNOT x x1; CNOT x x2
     pq += Program(CNOT(x, x1))
     pq += Program(CNOT(x, x2))
+    pq += Program(H(x))
+    pq += Program(H(x1))
+    pq += Program(H(x2))
     code_register.append(x)
     code_register.append(x1)
     code_register.append(x2)
@@ -110,13 +128,15 @@ def phase_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlace
     ### Do your decoding and correction steps here
 
     #Decode with CNOT x a1;CNOT x1 a1; Measure a1[0]; CNOT x1 a2; CNOT x2 a2; Measure a2[1]
+    pq += Program(H(x))
+    pq += Program(H(x1))
+    pq += Program(H(x2))
     pq += Program(CNOT(x, a1))
     pq += Program(CNOT(x1, a1))
-    pq += MEASURE(a1, ro[0])
     pq += Program(CNOT(x1, a2))
     pq += Program(CNOT(x2, a2))
+    pq += MEASURE(a1, ro[0])
     pq += MEASURE(a2, ro[1])
-    
 
     #Conditional Cases:
     if ro[0] == 0 and ro[1] == 1 : pq += Program(Z(x2))
@@ -129,7 +149,32 @@ def phase_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlace
 def shor(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceholder]):
     # Note that in order for this code to work properly, you must build your Shor code using the phase code and
     # bit code methods above
-    pass
+    code_register = []
+
+    phase_program, phase_encoded = phase_code(qubit)
+    x, x1, x2 = phase_encoded #Unpack phase encoded qubits
+
+
+    bit_program, bit_encoded = bit_code(x)
+    bit_program1, bit_encoded1 = bit_code(x1)
+    bit_program2, bit_encoded2 = bit_code(x2)
+
+    x, a, b = bit_encoded
+    code_register.append(x)
+    code_register.append(a)
+    code_register.append(b)
+    x1, a1, b1 = bit_encoded1
+    code_register.append(x1)
+    code_register.append(a1)
+    code_register.append(b1)
+    x2, a2, b2 = bit_encoded2
+    code_register.append(x2)
+    code_register.append(a2)
+    code_register.append(b2)
+
+    total_program = phase_program + bit_program + bit_program1 + bit_program2
+
+    return total_program, code_register
 
 
 def run_code(error_code, noise, trials=10):
