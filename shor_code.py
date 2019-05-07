@@ -12,6 +12,7 @@ from pyquil.api import QVMConnection
 import subprocess
 subprocess.Popen("/src/qvm/qvm -S > qvm.log 2>&1", shell=True)
 
+rb_counter = 0
 
 # Do not change this SEED value you or your autograder score will be incorrect.
 qvm = QVMConnection(random_seed=1337)
@@ -32,30 +33,28 @@ def phase_flip_channel(prob: float):
 def depolarizing_channel(prob: float):
     noisy_I = np.sqrt(1-prob) * np.asarray([[1, 0], [0, 1]])
     noisy_X = np.sqrt(prob/3) * np.asarray([[0, 1], [1, 0]])
-    noisy_Y = np.sqrt(prob/3) * np.asarray([[0, -1], [1, 0]])
+    noisy_Y = np.sqrt(prob/3) * np.asarray([[0, -1j], [1j, 0]])
     noisy_Z = np.sqrt(prob/3) * np.asarray([[1, 0], [0, -1]])
     return [noisy_I, noisy_X, noisy_Y, noisy_Z]
 
 
 def bit_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceholder]):
-
+    global rb_counter
     ### Do your encoding step here
     code_register = []  # the List[QubitPlaceholder] of the qubits you have encoded into
 
     #Setup and declaration of qubits and memory
     pq = Program()  # the Program that does the encoding
-    rb = pq.declare('rb', 'BIT', 2)
+    rb = pq.declare('rb' + str(rb_counter), 'BIT', 2)
+    rb_counter += 1
 
     x = qubit
     x1 = QubitPlaceholder()
     x2 = QubitPlaceholder()
-   
+
     #Ancilla qubits
     a1 = QubitPlaceholder()
     a2 = QubitPlaceholder()
-    #To ensure the ancillas are zero
-    pq += Program(CNOT(a1, x)) 
-    pq += Program(CNOT(a2, x))
 
     #Encode with CNOT x x1; CNOT x x2
     pq += Program(CNOT(x, x1))
@@ -81,15 +80,17 @@ def bit_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceho
     pq += Program(CNOT(x2, a2))
     pq += MEASURE(a1, rb[0])
     pq += MEASURE(a2, rb[1])
-    
 
     #Conditional Cases:
-    if rb[0] == 0 and rb[1] == 1 : pq += Program(X(x2))
-    elif rb[0] == 1 and rb[1] == 0 : pq += Program(X(x))
-    elif rb[0] == 1 and rb[1] == 1 : pq += Program(X(x1))
-
-    #Free the memory:
-    rb = 0
+    rb1 = Program()
+    rb0 = Program()
+    rb00 = Program()
+    rb01 = Program(X(x2))
+    rb10 = Program(X(x))
+    rb11 = Program(X(x1))
+    rb1.if_then(rb[1], rb11, rb10)
+    rb0.if_then(rb[1], rb01, rb00)
+    pq.if_then(rb[0], rb1, rb0)
 
     return pq, code_register
 
@@ -105,14 +106,10 @@ def phase_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlace
     x = qubit
     x1 = QubitPlaceholder()
     x2 = QubitPlaceholder()
-   
+
     #Ancilla qubits
     a1 = QubitPlaceholder()
     a2 = QubitPlaceholder()
-    #To ensure the ancillas are zero
-    pq += Program(CNOT(a1, x)) 
-    pq += Program(CNOT(a2, x))
-
 
     #Encode with CNOT x x1; CNOT x x2
     pq += Program(CNOT(x, x1))
@@ -140,13 +137,20 @@ def phase_code(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlace
     pq += Program(CNOT(x1, a1))
     pq += Program(CNOT(x1, a2))
     pq += Program(CNOT(x2, a2))
+
+
     pq += MEASURE(a1, rp[0])
     pq += MEASURE(a2, rp[1])
 
-    #Conditional Cases:
-    if rp[0] == 0 and rp[1] == 1 : pq += Program(Z(x2))
-    elif rp[0] == 1 and rp[1] == 0 : pq += Program(Z(x))
-    elif rp[0] == 1 and rp[1] == 1 : pq += Program(Z(x1))
+    rp1 = Program()
+    rp0 = Program()
+    rp00 = Program()
+    rp01 = Program(X(x2))
+    rp10 = Program(X(x))
+    rp11 = Program(X(x1))
+    rp1.if_then(rp[1], rp11, rp10)
+    rp0.if_then(rp[1], rp01, rp00)
+    pq.if_then(rp[0], rp1, rp0)
 
     return pq, code_register
 
@@ -156,13 +160,12 @@ def shor(qubit: QubitPlaceholder, noise=None) -> (Program, List[QubitPlaceholder
     # bit code methods above
     code_register = []
 
-    phase_program, phase_encoded = phase_code(qubit)
+    phase_program, phase_encoded = phase_code(qubit, noise)
     x, x1, x2 = phase_encoded #Unpack phase encoded qubits
 
-
-    bit_program, bit_encoded = bit_code(x)
-    bit_program1, bit_encoded1 = bit_code(x1)
-    bit_program2, bit_encoded2 = bit_code(x2)
+    bit_program, bit_encoded = bit_code(x, noise)
+    bit_program1, bit_encoded1 = bit_code(x1, noise)
+    bit_program2, bit_encoded2 = bit_code(x2, noise)
 
     x, a, b = bit_encoded
     code_register.append(x)
@@ -215,18 +218,8 @@ def simulate_code(kraus_operators, trials, error_code) -> int:
     pq += [MEASURE(qq, rr) for qq, rr in zip(code_register, ro)]
     results = qvm.run(address_qubits(pq), trials=trials)
     for trial in results:
-        if any(trial) and not all(trial) : score += 1
+        if any(trial):
+            score += 1
 
     return score
-
-
-# score = simulate_code(bit_flip_channel(0.5), 1000, bit_code)
-# print(score)
-
-# # score = simulate_code(bit_flip_channel(0.5), 1000, phase_code)
-# # print(score) #Always zero which seems wrong
-
-score = simulate_code(bit_flip_channel(0.5), 100, shor)
-print(score)
-
 
